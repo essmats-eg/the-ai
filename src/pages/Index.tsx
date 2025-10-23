@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
-import { SettingsDialog, AppSettings } from "@/components/SettingsDialog";
+import { SettingsDialog } from "@/components/SettingsDialog";
+import { Settings, DEFAULT_SETTINGS } from "@/types/chat";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { usePollinationsImageGeneration } from "@/hooks/usePollinationsImage";
@@ -20,11 +21,7 @@ const Index = () => {
   const [imagePrompt, setImagePrompt] = useState("");
   const [generatingImage, setGeneratingImage] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [settings, setSettings] = useState<AppSettings>({
-    usePollinationsForImages: true,
-    imageModel: "flux",
-    chatModel: "gemini-2.5-flash",
-  });
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -47,16 +44,21 @@ const Index = () => {
     
     setGeneratingImage(true);
     try {
-      if (settings.usePollinationsForImages) {
+      // Check which provider is enabled for images
+      const pollinationsEnabled = settings.aiProviders.find(p => p.id === 'pollinations')?.enabled;
+      const lovableEnabled = settings.aiProviders.find(p => p.id === 'lovable')?.enabled;
+      
+      if (pollinationsEnabled) {
         // Use Pollinations.ai (free, unlimited)
+        const model = settings.aiProviders.find(p => p.id === 'pollinations')?.models[0] || 'flux';
         const imageUrl = await generatePollinationsImage(imagePrompt, {
-          model: settings.imageModel,
+          model: model as string,
           width: 1024,
           height: 1024,
         });
         setGeneratedImage(imageUrl);
         toast.success("Image generated with Pollinations!");
-      } else {
+      } else if (lovableEnabled) {
         // Use Lovable AI edge function
         const response = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-image`,
@@ -75,6 +77,8 @@ const Index = () => {
         const data = await response.json();
         setGeneratedImage(data.imageUrl);
         toast.success("Image generated!");
+      } else {
+        toast.error("Please enable an image provider in settings");
       }
     } catch (error) {
       console.error("Image generation error:", error);
@@ -193,7 +197,7 @@ const Index = () => {
                   Generating...
                 </>
               ) : (
-                `Generate Image ${settings.usePollinationsForImages ? '(Pollinations)' : '(AI)'}`
+                "Generate Image"
               )}
             </Button>
             {generatedImage && (

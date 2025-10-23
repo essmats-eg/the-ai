@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
+import { SettingsDialog, AppSettings } from "@/components/SettingsDialog";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { usePollinationsImageGeneration } from "@/hooks/usePollinationsImage";
 import { Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -12,11 +14,17 @@ import { Button } from "@/components/ui/button";
 const Index = () => {
   const { messages, sendMessage, isLoading } = useAIChat();
   const { isRecording, startRecording, stopRecording } = useVoiceInput();
+  const { generateImage: generatePollinationsImage, isGenerating: isPollinationsGenerating } = usePollinationsImageGeneration();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [imagePrompt, setImagePrompt] = useState("");
   const [generatingImage, setGeneratingImage] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings>({
+    usePollinationsForImages: true,
+    imageModel: "flux",
+    chatModel: "gemini-2.5-flash",
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -39,23 +47,35 @@ const Index = () => {
     
     setGeneratingImage(true);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-image`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({ prompt: imagePrompt }),
-        }
-      );
+      if (settings.usePollinationsForImages) {
+        // Use Pollinations.ai (free, unlimited)
+        const imageUrl = await generatePollinationsImage(imagePrompt, {
+          model: settings.imageModel,
+          width: 1024,
+          height: 1024,
+        });
+        setGeneratedImage(imageUrl);
+        toast.success("Image generated with Pollinations!");
+      } else {
+        // Use Lovable AI edge function
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-image`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            },
+            body: JSON.stringify({ prompt: imagePrompt }),
+          }
+        );
 
-      if (!response.ok) throw new Error("Failed to generate image");
-      
-      const data = await response.json();
-      setGeneratedImage(data.imageUrl);
-      toast.success("Image generated!");
+        if (!response.ok) throw new Error("Failed to generate image");
+        
+        const data = await response.json();
+        setGeneratedImage(data.imageUrl);
+        toast.success("Image generated!");
+      }
     } catch (error) {
       console.error("Image generation error:", error);
       toast.error("Failed to generate image");
@@ -80,6 +100,7 @@ const Index = () => {
               <p className="text-xs text-muted-foreground">Your Advanced Intelligence Companion</p>
             </div>
           </div>
+          <SettingsDialog settings={settings} onSettingsChange={setSettings} />
         </div>
       </header>
 
@@ -163,16 +184,16 @@ const Index = () => {
             />
             <Button 
               onClick={handleImageGeneration} 
-              disabled={generatingImage || !imagePrompt.trim()}
+              disabled={generatingImage || isPollinationsGenerating || !imagePrompt.trim()}
               className="w-full"
             >
-              {generatingImage ? (
+              {(generatingImage || isPollinationsGenerating) ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Generating...
                 </>
               ) : (
-                "Generate Image"
+                `Generate Image ${settings.usePollinationsForImages ? '(Pollinations)' : '(AI)'}`
               )}
             </Button>
             {generatedImage && (
